@@ -1,27 +1,31 @@
-#!/usr/bin/python
-
-#Image querying script written by Tamara Berg,
-#and extended heavily James Hays
-
-#9/26/2007 added dynamic timeslices to query more efficiently.
-#8/18/2008 added new fields and set maximum time slice.
-#8/19/2008 this is a much simpler function which gets ALL geotagged photos of
-# sufficient accuracy.  No queries, no negative constraints.
-# divides up the query results into multiple files
-# 1/5/2009
-# now uses date_taken instead of date_upload to get more diverse blocks of images
-# 1/13/2009 - uses the original im2gps keywords, not as negative constraints though
 
 import sys, string, math, time, socket
 from flickrapi2 import FlickrAPI
 from datetime import datetime
+import urllib, shutil
 
-socket.setdefaulttimeout(30)  #30 second time out on sockets before they throw
-#an exception.  I've been having trouble with urllib.urlopen hanging in the 
-#flickr API.  This will show up as exceptions.IOError.
 
-#the time out needs to be pretty long, it seems, because the flickr servers can be slow
-#to respond to our big searches.
+socket.setdefaulttimeout(30)
+
+
+def download_images(urls):
+    for url in urls:
+        if not url:
+            continue
+        file, mime = urllib.urlretrieve(url)
+        name = url.split('/')[-1]
+        print name
+        shutil.copy(file, './'+name)
+
+def get_urls_for_tags(photos):
+    urls = []
+    for photo in photos:
+        try:
+            urls.append(photo.getURL(size='Large', urlType='source'))
+        except:
+            continue
+    return urls
+
 
 print sys.argv 
 if len(sys.argv) > 1:
@@ -55,14 +59,16 @@ for line in query_file:
         num_queries = num_queries + 1
       if line[0] == '-':
         neg_queries = neg_queries + ' ' + line
-        
+            
+
+
 query_file.close()
 print 'positive queries:  '
 print pos_queries
 print 'negative queries:  ' + neg_queries
 print 'num_queries = ' + str(num_queries)
 
-
+urls = []
 # make a new FlickrAPI instance
 fapi = FlickrAPI(flickrAPIKey, flickrSecret)
 
@@ -145,11 +151,11 @@ for current_tag in range(0, num_queries):
                                     media="photos",
                                     per_page="250", 
                                     page=str(pagenum),
-                                    sort="interestingness-desc",
+                                    sort="relevance",
                                     has_geo = "1", #bbox="-180, -90, 180, 90",
                                     text=query_string,
                                     accuracy="6", #6 is region level.  most things seem 10 or better.
-                                    extras = "tags, original_format, license, geo, date_taken, date_upload, o_dims, views")
+                                    extras = "description, license, date_upload, date_taken, owner_name, icon_server, original_format, last_update, geo, tags, machine_tags, o_dims, views, media, path_alias, url_sq, url_t, url_s, url_q, url_m, url_n, url_z, url_c, url_l, url_o")
                 time.sleep(1)
                 fapi.testFailure(rsp)
             except KeyboardInterrupt:
@@ -161,38 +167,47 @@ for current_tag in range(0, num_queries):
                 #print inst.args      # arguments stored in .args
                 #print inst           # __str__ allows args to printed directly
                 print ('Exception encountered while querying for images\n')
+            else:
+                # and print them
+                k = getattr(rsp,'photos',None)
+                if k:
+                    m = getattr(rsp.photos[0],'photo',None)
+                    if m:
+                        for b in rsp.photos[0].photo:
+                            if b!=None:
+                                out_file.write('photo: ' + b['id'] + ' ' + b['secret'] + ' ' + b['server'] + '\n')
+                                out_file.write('owner: ' + b['owner'] + '\n') 
+                                out_file.write('title: ' + b['title'].encode("ascii","replace") + '\n')
+                                
+                                out_file.write('originalsecret: ' + b['originalsecret'] + '\n')
+                                out_file.write('originalformat: ' + b['originalformat'] + '\n')
+                                out_file.write('o_height: ' + b['o_height'] + '\n')
+                                out_file.write('o_width: ' + b['o_width'] + '\n')
+                                out_file.write('datetaken: ' + b['datetaken'].encode("ascii","replace") + '\n')
+                                out_file.write('dateupload: ' + b['dateupload'].encode("ascii","replace") + '\n')
+                                
+                                out_file.write('tags: ' + b['tags'].encode("ascii","replace") + '\n')
+                                
+                                out_file.write('license: ' + b['license'].encode("ascii","replace") + '\n')
+                                out_file.write('latitude: '  + b['latitude'].encode("ascii","replace") + '\n')
+                                out_file.write('longitude: ' + b['longitude'].encode("ascii","replace") + '\n')
+                                out_file.write('accuracy: '  + b['accuracy'].encode("ascii","replace") + '\n')
+                                
+                                out_file.write('views: ' + b['views'] + '\n')
+                                out_file.write('interestingness: ' + str(current_image_num) + ' out of ' + str(total_images) + '\n');
+                                out_file.write('\n')
+                                current_image_num = current_image_num + 1
+                                urls += [b['url_o'] or b['url_l'] or b['url_c'] or b['url_z'] or b['url_n'] or b['url_m'] or b['url_sq'] or b['url_t'] or b['url_s'] or b['url_q']]
+                                #Creating URL array
+                                
 
-            # and print them
-            k = getattr(rsp,'photos',None)
-            if k:
-                m = getattr(rsp.photos[0],'photo',None)
-                if m:
-                    for b in rsp.photos[0].photo:
-                        if b!=None:
-                            out_file.write('photo: ' + b['id'] + ' ' + b['secret'] + ' ' + b['server'] + '\n')
-                            out_file.write('owner: ' + b['owner'] + '\n') 
-                            out_file.write('title: ' + b['title'].encode("ascii","replace") + '\n')
-                            
-                            out_file.write('originalsecret: ' + b['originalsecret'] + '\n')
-                            out_file.write('originalformat: ' + b['originalformat'] + '\n')
-                            out_file.write('o_height: ' + b['o_height'] + '\n')
-                            out_file.write('o_width: ' + b['o_width'] + '\n')
-                            out_file.write('datetaken: ' + b['datetaken'].encode("ascii","replace") + '\n')
-                            out_file.write('dateupload: ' + b['dateupload'].encode("ascii","replace") + '\n')
-                            
-                            out_file.write('tags: ' + b['tags'].encode("ascii","replace") + '\n')
-                            
-                            out_file.write('license: ' + b['license'].encode("ascii","replace") + '\n')
-                            out_file.write('latitude: '  + b['latitude'].encode("ascii","replace") + '\n')
-                            out_file.write('longitude: ' + b['longitude'].encode("ascii","replace") + '\n')
-                            out_file.write('accuracy: '  + b['accuracy'].encode("ascii","replace") + '\n')
-                            
-                            out_file.write('views: ' + b['views'] + '\n')
-                            out_file.write('interestingness: ' + str(current_image_num) + ' out of ' + str(total_images) + '\n');
-                            out_file.write('\n')
-                            current_image_num = current_image_num + 1;
-            pagenum = pagenum + 1;  #this is in the else exception block.  It won't increment for a failure.
+
+                pagenum = pagenum + 1
 
 
     out_file.write('Total images queried: ' + str(total_images_queried) + '\n')
     out_file.close
+
+download_images(urls)
+
+
